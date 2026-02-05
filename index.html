@@ -75,10 +75,15 @@
                 document.documentElement.classList.toggle('dark');
             };
 
+            const cleanValue = (val) => {
+                if (!val) return "";
+                return val.replace(/^"|"$/g, '').trim();
+            };
+
             const parseCSV = (csvText) => {
                 const lines = csvText.split(/\r?\n/);
                 if (lines.length === 0) return [];
-                const headers = lines[0].split(',').map(h => h.trim());
+                const headers = lines[0].split(',').map(h => cleanValue(h));
                 return lines.slice(1).filter(line => line.trim() !== "").map(line => {
                     const values = line.split(',');
                     const obj = {};
@@ -93,7 +98,7 @@
                         if (key === "Radius Status") key = "radius";
                         if (key === "Syslog Status") key = "syslog";
                         if (key === "Link Uptime") key = "uptime";
-                        obj[key] = values[i] ? values[i].trim() : "";
+                        obj[key] = values[i] ? cleanValue(values[i]) : "";
                     });
                     return obj;
                 });
@@ -104,17 +109,24 @@
                     const response = await fetch(`${DATA_SOURCES.detail_source}&t=${new Date().getTime()}`);
                     const csvText = await response.text();
                     const lines = csvText.split(/\r?\n/);
-                    const headers = lines[0].split(',').map(h => h.trim());
+                    if (lines.length === 0) return;
+                    
+                    const headers = lines[0].split(',').map(h => cleanValue(h));
                     const detailsMap = {};
+                    
                     lines.slice(1).forEach(line => {
                         if (line.trim() === "") return;
                         const values = line.split(',');
                         const detailObj = {};
-                        headers.forEach((h, i) => detailObj[h] = values[i] ? values[i].trim() : "");
-                        if (detailObj["Identity"]) detailsMap[detailObj["Identity"]] = detailObj;
+                        headers.forEach((h, i) => {
+                            detailObj[h] = values[i] ? cleanValue(values[i]) : "";
+                        });
+                        if (detailObj["Identity"]) {
+                            detailsMap[detailObj["Identity"]] = detailObj;
+                        }
                     });
                     setDetails(detailsMap);
-                } catch (err) { console.error(err); }
+                } catch (err) { console.error("Detail Error:", err); }
             };
 
             const fetchData = async (isManual = false) => {
@@ -194,7 +206,6 @@
             return (
                 <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
                     
-                    {/* Side Drawer Overlay */}
                     <div 
                         className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300 ${
                             selectedItem ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
@@ -202,7 +213,6 @@
                         onClick={() => setSelectedItem(null)}
                     ></div>
 
-                    {/* Side Drawer */}
                     <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white dark:bg-slate-900 z-50 shadow-2xl transition-all duration-300 ease-in-out transform ${
                         selectedItem ? 'translate-x-0' : 'translate-x-full'
                     } border-l border-slate-200 dark:border-slate-800`}>
@@ -210,11 +220,10 @@
                             <div className="flex flex-col h-full">
                                 <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
                                     <div className="min-w-0">
-                                        {/* แก้ไขข้อ 1: หัวข้อจาก Col B Sheet 2 */}
                                         <h2 className="text-xl font-black text-slate-800 dark:text-white uppercase tracking-tight truncate">
-                                            {details[selectedItem.Identity]?.["ชื่อห้องประชุม/หน่วยงาน"] || selectedItem.name}
+                                            {details[selectedItem.Identity]?.["ห้องสมุดประชาชน"] || selectedItem.name}
                                         </h2>
-                                        <p className="text-xs font-bold text-emerald-600 uppercase tracking-widest opacity-70">Site Detail</p>
+                                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest opacity-70">Site Detail</p>
                                     </div>
                                     <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors dark:text-white shrink-0">
                                         <Icon name="x" size={24} />
@@ -235,30 +244,30 @@
 
                                     <div>
                                         <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                                            <Icon name="info" size={14} /> Full Details (Sheet 2)
+                                            <Icon name="info" size={14} /> Database Information
                                         </h4>
                                         <div className="space-y-1 bg-slate-50/50 dark:bg-slate-800/20 rounded-3xl p-2 border border-slate-100 dark:border-slate-800">
                                             {details[selectedItem.Identity] ? (
                                                 Object.entries(details[selectedItem.Identity]).map(([key, value]) => {
-                                                    // แก้ไขข้อ 3: ไม่แสดง Identity
                                                     if (key === "Identity") return null;
+
+                                                    const displayValue = value ? value.replace(/\n/g, ' ').trim() : "-";
 
                                                     return (
                                                         <div key={key} className="flex justify-between items-center py-3 px-4 border-b border-slate-100/50 dark:border-slate-800/50 last:border-0 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-colors">
                                                             <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mr-4">{key}</span>
                                                             
-                                                            {/* แก้ไขข้อ 2: แสดงพิกัดและแนบลิ้งค์ Google Map */}
                                                             {key === "พิกัด" ? (
                                                                 <a 
-                                                                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(value)}`}
+                                                                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(displayValue)}`}
                                                                     target="_blank"
                                                                     rel="noopener noreferrer"
-                                                                    className="text-xs font-black text-blue-600 dark:text-blue-400 text-right underline decoration-dotted underline-offset-4"
+                                                                    className="text-xs font-black text-blue-600 dark:text-blue-400 text-right underline underline-offset-4"
                                                                 >
-                                                                    {value || "-"}
+                                                                    {displayValue}
                                                                 </a>
                                                             ) : (
-                                                                <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right">{value || "-"}</span>
+                                                                <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right">{displayValue}</span>
                                                             )}
                                                         </div>
                                                     );
@@ -326,7 +335,6 @@
                             </div>
                         </header>
 
-                        {/* Stats Grid */}
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                             <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl shadow-sm border border-slate-100 dark:border-slate-800 text-center">
                                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">TOTAL</p>
@@ -346,7 +354,6 @@
                             </div>
                         </div>
 
-                        {/* Search */}
                         <div className="relative mb-8">
                             <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">
                                 <Icon name="search" size={20} />
@@ -360,7 +367,6 @@
                             />
                         </div>
 
-                        {/* List */}
                         <div className="space-y-4">
                             {loading ? (
                                 <div className="py-20 text-center"><Icon name="refresh-cw" className="animate-spin mx-auto text-emerald-500" size={32} /></div>
