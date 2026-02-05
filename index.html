@@ -15,8 +15,9 @@
         .dark { background-color: #020617; }
         i[data-lucide] svg { width: 100% !important; height: 100% !important; }
         .stats-card { cursor: pointer; transition: all 0.2s ease; }
-        .stats-card:active { transform: scale(0.95); }
         .stats-active { ring: 3px solid #10b981; ring-offset: 2px; }
+        /* ป้องกันข้อความภาษาไทยตัดคำผิดปกติบนมือถือ */
+        .text-pretty { text-wrap: pretty; }
     </style>
     <script>
         tailwind.config = { darkMode: 'class' }
@@ -38,16 +39,8 @@
         };
 
         const DATA_SOURCES = {
-            library: {
-                name: "ห้องสมุด",
-                icon: "library",
-                url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=2085892829&single=true&output=csv"
-            },
-            sorkor: {
-                name: "สกร.",
-                icon: "building-2",
-                url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=0&single=true&output=csv"
-            },
+            library: { name: "ห้องสมุด", icon: "library", url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=2085892829&single=true&output=csv" },
+            sorkor: { name: "สกร.", icon: "building-2", url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=0&single=true&output=csv" },
             detail_source: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=929090844&single=true&output=csv"
         };
 
@@ -75,10 +68,8 @@
                 for (let i = 0; i < text.length; i++) {
                     let char = text[i];
                     if (char === '"') inQuote = !inQuote;
-                    else if (char === ',' && !inQuote) {
-                        result.push(cur.trim());
-                        cur = '';
-                    } else cur += char;
+                    else if (char === ',' && !inQuote) { result.push(cur.trim()); cur = ''; }
+                    else cur += char;
                 }
                 result.push(cur.trim());
                 return result;
@@ -108,7 +99,7 @@
                     await fetchDetails();
                     const response = await fetch(`${DATA_SOURCES[activeTab].url}&t=${new Date().getTime()}`);
                     const csvText = await response.text();
-                    const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== "" && l.split(',')[0] !== "");
+                    const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== "" && l.replace(/,/g, '').trim() !== "");
                     const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
                     const parsedItems = lines.slice(1).map(line => {
                         const values = parseCSVLine(line);
@@ -117,6 +108,7 @@
                             let key = h;
                             if (h === "ลำดับ") key = "id";
                             if (["ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ"].includes(h)) key = "name";
+                            if (h === "Identity") key = "Identity";
                             if (h === "เลขวงจร") key = "circuit";
                             if (h === "VPN Status") key = "vpn";
                             if (h === "Internet Status") key = "internet";
@@ -126,7 +118,7 @@
                             obj[key] = values[i] ? values[i].replace(/^"|"$/g, '').trim() : "";
                         });
                         return obj;
-                    });
+                    }).filter(item => item.name !== "" || item.Identity !== "");
                     setItems(parsedItems);
                     setLastSync(new Date().toLocaleTimeString('th-TH'));
                 } catch (err) { console.error(err); }
@@ -136,18 +128,12 @@
                 }
             };
 
-            useEffect(() => {
-                fetchData();
-                const interval = setInterval(() => fetchData(), 60000);
-                return () => clearInterval(interval);
-            }, [activeTab]);
+            useEffect(() => { fetchData(); }, [activeTab]);
 
             const getSiteSummary = (item) => {
-                const s = [item.vpn, item.internet, item.radius, item.syslog].map(v => String(v || "").toUpperCase());
+                const s = [item.vpn, item.internet, item.radius, item.syslog].map(v => String(v || "").toUpperCase().trim());
                 const upCount = s.filter(v => v === "UP" || v === "ONLINE").length;
-                const downCount = s.filter(v => v === "DOWN" || v === "OFFLINE").length;
                 const totalMonitored = s.filter(v => v !== "").length;
-
                 if (totalMonitored === 0) return { label: "WAITING", color: "bg-slate-400" };
                 if (upCount === totalMonitored) return { label: "READY", color: "bg-emerald-500" };
                 if (upCount === 0) return { label: "NOT READY", color: "bg-rose-500" };
@@ -155,14 +141,14 @@
             };
 
             const stats = useMemo(() => {
-                let online = 0, offline = 0;
+                let online = 0, offline = 0, abnormal = 0;
                 items.forEach(i => {
                     const status = getSiteSummary(i);
                     if (status.label === "READY") online++;
-                    else if (status.label === "NOT READY" || status.label === "ABNORMAL") offline++;
+                    else if (status.label === "NOT READY") offline++;
+                    else if (status.label === "ABNORMAL") abnormal++;
                 });
-                const total = items.length;
-                return { total, online, offline, health: total > 0 ? Math.round((online / total) * 100) : 0 };
+                return { total: items.length, online, offline, abnormal, health: items.length > 0 ? Math.round((online / items.length) * 100) : 0 };
             }, [items]);
 
             const filteredItems = useMemo(() => {
@@ -170,7 +156,8 @@
                     const matchesSearch = (i.name || "").toLowerCase().includes(search.toLowerCase()) || (i.Identity || "").toLowerCase().includes(search.toLowerCase());
                     const status = getSiteSummary(i);
                     if (filterStatus === "ONLINE") return matchesSearch && status.label === "READY";
-                    if (filterStatus === "OFFLINE") return matchesSearch && (status.label === "NOT READY" || status.label === "ABNORMAL");
+                    if (filterStatus === "OFFLINE") return matchesSearch && status.label === "NOT READY";
+                    if (filterStatus === "ABNORMAL") return matchesSearch && status.label === "ABNORMAL";
                     return matchesSearch;
                 });
             }, [items, search, filterStatus]);
@@ -180,144 +167,135 @@
                 const isUp = val === "UP" || val === "ONLINE";
                 const isDown = val === "DOWN" || val === "OFFLINE";
                 return (
-                    <div className={`flex flex-col items-center justify-center p-1.5 rounded-xl border transition-all h-14 md:h-16 w-16 md:w-20 ${
-                        isUp ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 
-                        isDown ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400 animate-pulse' : 
-                        'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 border-dashed'
+                    <div className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all h-12 w-full max-w-[60px] md:h-16 md:max-w-[80px] ${
+                        isUp ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400' : 
+                        isDown ? 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400 animate-pulse' : 
+                        'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'
                     }`}>
-                        <Icon name={icon} size={16} className="mb-1" />
-                        <span className="text-[8px] font-bold uppercase opacity-70 leading-none mb-0.5">{label}</span>
-                        <span className="text-[10px] font-black">{isUp ? "UP" : isDown ? "DOWN" : "WAIT"}</span>
+                        <Icon name={icon} size={14} className="md:size-4 mb-0.5" />
+                        <span className="text-[7px] md:text-[8px] font-bold uppercase opacity-80 leading-none">{label}</span>
+                        <span className="text-[9px] md:text-[10px] font-black">{isUp ? "UP" : isDown ? "DOWN" : "WAIT"}</span>
                     </div>
                 );
             };
 
             return (
-                <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
-                    <div className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300 ${selectedItem ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSelectedItem(null)}></div>
+                <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-[#0a0f1d]' : 'bg-slate-50'}`}>
+                    <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity ${selectedItem ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSelectedItem(null)}></div>
 
-                    {/* Side Drawer - Enhanced for PC */}
-                    <div className={`fixed top-0 right-0 h-full w-full max-w-xl bg-white dark:bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ease-in-out transform ${selectedItem ? 'translate-x-0' : 'translate-x-full'} border-l border-slate-200 dark:border-slate-800`}>
+                    {/* Side Drawer - Detail */}
+                    <div className={`fixed top-0 right-0 h-full w-full max-w-lg bg-white dark:bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ${selectedItem ? 'translate-x-0' : 'translate-x-full'} border-l border-slate-200 dark:border-slate-800`}>
                         {selectedItem && (
                             <div className="flex flex-col h-full">
-                                <div className="p-8 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
-                                    <div className="min-w-0">
-                                        <div className="flex items-center gap-3 mb-1">
-                                            <h2 className="text-2xl font-black text-slate-800 dark:text-white uppercase truncate tracking-tight">
-                                                {details[selectedItem.Identity]?.["ห้องสมุดประชาชน"] || selectedItem.name}
-                                            </h2>
-                                            <span className={`px-3 py-1 rounded-full text-[10px] font-black text-white ${getSiteSummary(selectedItem).color}`}>
-                                                {getSiteSummary(selectedItem).label}
-                                            </span>
-                                        </div>
-                                        <p className="text-xs font-bold text-emerald-600 uppercase tracking-[0.2em]">Detailed Node Information</p>
+                                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/80">
+                                    <div className="min-w-0 pr-4">
+                                        <h2 className="text-xl font-black text-slate-800 dark:text-slate-100 uppercase truncate">
+                                            {details[selectedItem.Identity]?.["ห้องสมุดประชาชน"] || selectedItem.name}
+                                        </h2>
+                                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Detailed Node Status</p>
                                     </div>
-                                    <button onClick={() => setSelectedItem(null)} className="p-3 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors dark:text-white shrink-0"><Icon name="x" size={28} /></button>
+                                    <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full dark:text-white shrink-0"><Icon name="x" size={24} /></button>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-8 space-y-8">
-                                    <div className="grid grid-cols-2 gap-6">
-                                        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm text-center">
-                                            <p className="text-xs font-bold text-slate-400 uppercase mb-2">Circuit ID</p>
-                                            <p className="text-lg font-black text-slate-700 dark:text-slate-200">{selectedItem.circuit || "-"}</p>
+                                <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-tighter">Circuit ID</p>
+                                            <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.circuit || "-"}</p>
                                         </div>
-                                        <div className="p-6 bg-slate-50 dark:bg-slate-800/50 rounded-3xl border border-slate-100 dark:border-slate-700 shadow-sm text-center">
-                                            <p className="text-xs font-bold text-slate-400 uppercase mb-2">Uptime</p>
-                                            <p className="text-lg font-black text-slate-700 dark:text-slate-200">{selectedItem.uptime || "-"}</p>
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-tighter">Uptime</p>
+                                            <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.uptime || "-"}</p>
                                         </div>
                                     </div>
-                                    <div className="space-y-2 bg-slate-50/50 dark:bg-slate-800/20 rounded-[2.5rem] p-4 border border-slate-100 dark:border-slate-800">
+                                    <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-3xl p-2 border border-slate-100 dark:border-slate-800">
                                         {details[selectedItem.Identity] ? Object.entries(details[selectedItem.Identity]).map(([key, value]) => {
                                             if (["Identity", "ที่", "ห้องสมุดประชาชน"].includes(key)) return null;
                                             return (
-                                                <div key={key} className="flex justify-between items-center py-4 px-6 border-b border-slate-100/50 dark:border-slate-800/50 last:border-0 hover:bg-white dark:hover:bg-slate-800 rounded-2xl transition-all">
-                                                    <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase mr-8 shrink-0 tracking-wider">{key}</span>
-                                                    {key === "พิกัด" ? (
-                                                        <a href={`https://www.google.com/maps?q=${value}`} target="_blank" className="text-sm font-black text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-4 truncate">{value}</a>
-                                                    ) : (
-                                                        <span className="text-sm font-black text-slate-800 dark:text-slate-200 text-right leading-relaxed">{value || "-"}</span>
-                                                    )}
+                                                <div key={key} className="flex justify-between items-start py-3 px-4 border-b border-slate-100 dark:border-slate-800 last:border-0">
+                                                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mr-4 pt-1">{key}</span>
+                                                    <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right break-words max-w-[180px]">{value || "-"}</span>
                                                 </div>
                                             );
-                                        }) : <div className="py-20 text-center text-slate-400">No data found</div>}
+                                        }) : <div className="py-10 text-center text-slate-400 text-xs font-bold uppercase italic tracking-widest">Detail data not found</div>}
                                     </div>
                                 </div>
-                                <div className="p-8 border-t border-slate-100 dark:border-slate-800">
-                                    <button onClick={() => setSelectedItem(null)} className="w-full py-5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black uppercase text-base tracking-widest shadow-xl transition-all">Close Panel</button>
+                                <div className="p-6">
+                                    <button onClick={() => setSelectedItem(null)} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black uppercase text-sm tracking-widest transition-all shadow-lg shadow-emerald-500/20">Close</button>
                                 </div>
                             </div>
                         )}
                     </div>
 
-                    <div className="max-w-7xl mx-auto p-4 md:p-10">
-                        <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-12 gap-8">
-                            <div className="flex flex-col gap-2">
-                                <h1 className="text-3xl md:text-4xl font-black uppercase tracking-tighter dark:text-white leading-none">Dole <span className="text-emerald-600">Network</span> Monitor</h1>
-                                <div className="flex items-center gap-3 mt-2">
-                                    <div className="px-5 py-2 bg-emerald-600 text-white rounded-full text-sm font-black uppercase tracking-[0.2em] shadow-lg shadow-emerald-500/20">System Live: {DATA_SOURCES[activeTab].name}</div>
+                    <div className="max-w-7xl mx-auto px-4 py-6 md:px-10 md:py-10">
+                        {/* Header Section */}
+                        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
+                            <div>
+                                <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter dark:text-white leading-none">Dole <span className="text-emerald-500">Network</span></h1>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
+                                    <p className="text-[10px] md:text-xs font-black text-slate-400 dark:text-slate-400 uppercase tracking-widest">{DATA_SOURCES[activeTab].name} Monitoring Live</p>
                                 </div>
                             </div>
-                            <div className="flex flex-wrap gap-3 w-full lg:w-auto">
-                                <div className="p-2 bg-slate-200 dark:bg-slate-900 rounded-3xl flex gap-1 shadow-inner">
+                            <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+                                <div className="flex bg-slate-200 dark:bg-slate-900 p-1 rounded-xl shrink-0">
                                     {Object.keys(DATA_SOURCES).filter(k=>k!=='detail_source').map(k => (
-                                        <button key={k} onClick={()=>{setActiveTab(k); setFilterStatus("TOTAL");}} className={`px-8 py-3 rounded-2xl text-sm font-black transition-all flex items-center gap-3 ${activeTab===k ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow-md' : 'text-slate-500'}`}>
-                                            <Icon name={DATA_SOURCES[k].icon} size={16} />{DATA_SOURCES[k].name}
+                                        <button key={k} onClick={()=>setActiveTab(k)} className={`px-4 py-2 rounded-lg text-[10px] md:text-xs font-black transition-all flex items-center gap-2 ${activeTab===k ? 'bg-white dark:bg-slate-800 text-emerald-500 shadow-sm' : 'text-slate-500'}`}>
+                                            <Icon name={DATA_SOURCES[k].icon} size={14} />{DATA_SOURCES[k].name}
                                         </button>
                                     ))}
                                 </div>
-                                <div className="flex gap-2">
-                                    <button onClick={toggleDarkMode} className="p-4 bg-white dark:bg-slate-900 dark:text-white rounded-2xl border border-slate-200 dark:border-slate-800"><Icon name={isDarkMode?"sun":"moon"} size={22}/></button>
-                                    <button onClick={()=>fetchData(true)} className="p-4 bg-white dark:bg-slate-900 dark:text-white rounded-2xl border border-slate-200 dark:border-slate-800"><Icon name="refresh-cw" className={isRefreshing?'animate-spin':''} size={22}/></button>
+                                <div className="flex gap-2 shrink-0">
+                                    <button onClick={toggleDarkMode} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-800"><Icon name={isDarkMode?"sun":"moon"} size={18}/></button>
+                                    <button onClick={()=>fetchData(true)} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-800"><Icon name="refresh-cw" className={isRefreshing?'animate-spin':''} size={18}/></button>
                                 </div>
                             </div>
                         </header>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-10 text-center">
+                        {/* Stats Bar - Mobile Optimized */}
+                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-8">
                             {[
                                 { id: 'TOTAL', label: 'TOTAL SITES', val: stats.total, color: 'text-slate-800 dark:text-white', bg: 'bg-white dark:bg-slate-900' },
-                                { id: 'ONLINE', label: 'READY', val: stats.online, color: 'text-emerald-600', bg: 'bg-white dark:bg-slate-900 border-emerald-500/20' },
-                                { id: 'OFFLINE', label: 'OFFLINE/ABNORMAL', val: stats.offline, color: 'text-rose-600', bg: 'bg-white dark:bg-slate-900 border-rose-500/20' },
-                                { id: 'HEALTH', label: 'HEALTH', val: stats.health + '%', color: 'text-white', bg: 'bg-emerald-600' }
+                                { id: 'ONLINE', label: 'READY', val: stats.online, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-white dark:bg-slate-900' },
+                                { id: 'ABNORMAL', label: 'ABNORMAL', val: stats.abnormal, color: 'text-amber-500 dark:text-amber-400', bg: 'bg-white dark:bg-slate-900' },
+                                { id: 'OFFLINE', label: 'OFFLINE', val: stats.offline, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-white dark:bg-slate-900' },
+                                { id: 'HEALTH', label: 'HEALTH', val: stats.health + '%', color: 'text-white', bg: 'bg-emerald-600 lg:col-span-1 col-span-2' }
                             ].map((s, i) => (
-                                <div key={i} onClick={() => s.id !== 'HEALTH' && setFilterStatus(filterStatus === s.id ? "TOTAL" : s.id)} className={`stats-card ${s.bg} p-8 rounded-[2.5rem] border transition-all ${filterStatus === s.id ? 'stats-active shadow-2xl scale-105' : 'shadow-sm hover:shadow-lg'}`}>
-                                    <p className="text-[11px] font-black uppercase tracking-[0.2em] mb-2 opacity-60">{s.label}</p>
-                                    <div className={`text-4xl font-black ${s.color}`}>{s.val}</div>
+                                <div key={i} onClick={() => s.id !== 'HEALTH' && setFilterStatus(filterStatus === s.id ? "TOTAL" : s.id)} 
+                                     className={`stats-card ${s.bg} p-4 md:p-6 rounded-2xl border border-slate-100 dark:border-slate-800 transition-all ${filterStatus === s.id ? 'stats-active shadow-xl' : 'shadow-sm'}`}>
+                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mb-1 leading-none">{s.label}</p>
+                                    <div className={`text-xl md:text-3xl font-black ${s.color}`}>{s.val}</div>
                                 </div>
                             ))}
                         </div>
 
-                        <div className="relative mb-10">
-                            <div className="absolute left-6 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="search" size={24} /></div>
-                            <input type="text" placeholder="ค้นหาชื่อ หรือรหัส Identity..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-16 pr-8 py-6 rounded-[2.5rem] bg-white dark:bg-slate-900 dark:text-white border-none shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 focus:ring-4 focus:ring-emerald-500/20 outline-none font-bold text-xl transition-all" />
+                        {/* Search Bar */}
+                        <div className="relative mb-6">
+                            <Icon name="search" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input type="text" placeholder="Search site..." value={search} onChange={e=>setSearch(e.target.value)} 
+                                   className="w-full pl-12 pr-6 py-4 rounded-2xl bg-white dark:bg-slate-900 dark:text-slate-100 border-none shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-sm" />
                         </div>
 
-                        <div className="space-y-5">
+                        {/* List Items */}
+                        <div className="space-y-3">
                             {loading ? (
-                                <div className="py-32 text-center"><Icon name="refresh-cw" className="animate-spin mx-auto text-emerald-500" size={48} /></div>
+                                <div className="py-20 text-center"><Icon name="refresh-cw" className="animate-spin mx-auto text-emerald-500" size={32} /></div>
                             ) : filteredItems.map((item, idx) => {
-                                const siteStatus = getSiteSummary(item);
+                                const status = getSiteSummary(item);
                                 return (
-                                    <div key={idx} onClick={()=>setSelectedItem(item)} className="bg-white dark:bg-slate-900 p-6 rounded-[3rem] border border-slate-100 dark:border-slate-800 hover:border-emerald-500/50 hover:shadow-2xl transition-all flex flex-col xl:flex-row xl:items-center gap-8 group relative overflow-hidden">
-                                        <div className="flex items-center gap-6 flex-1 min-w-0">
-                                            <div className="w-20 h-20 bg-slate-50 dark:bg-slate-800 rounded-[2rem] flex items-center justify-center font-black text-2xl text-slate-300 border border-slate-100 dark:border-slate-700 group-hover:bg-emerald-600 group-hover:text-white transition-all shrink-0">
+                                    <div key={idx} onClick={()=>setSelectedItem(item)} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-lg transition-all flex flex-col md:flex-row md:items-center gap-4 group">
+                                        <div className="flex items-center gap-4 flex-1 min-w-0">
+                                            <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center font-black text-xs md:text-sm text-slate-400 dark:text-slate-500 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0">
                                                 {item.id || idx+1}
                                             </div>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-3 mb-2">
-                                                    <h3 className="text-2xl font-black text-slate-800 dark:text-slate-100 truncate leading-tight">{item.name || "Unknown Site"}</h3>
-                                                    <span className={`px-3 py-1 rounded-full text-[10px] font-black text-white shrink-0 ${siteStatus.color}`}>
-                                                        {siteStatus.label}
-                                                    </span>
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <h3 className="text-sm md:text-base font-black text-slate-800 dark:text-slate-100 truncate">{item.name || "Unknown"}</h3>
+                                                    <span className={`px-2 py-0.5 rounded-md text-[8px] font-black text-white shrink-0 ${status.color}`}>{status.label}</span>
                                                 </div>
-                                                <div className="flex flex-wrap items-center gap-4">
-                                                    <span className="text-xs font-black px-4 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full uppercase">ID: {item.Identity || "-"}</span>
-                                                    <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
-                                                        <Icon name="clock" size={14} />
-                                                        <span className="text-xs font-black uppercase tracking-widest">Uptime: {item.uptime || "0m"}</span>
-                                                    </div>
-                                                </div>
+                                                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tighter">ID: {item.Identity || "-"}</p>
                                             </div>
                                         </div>
-                                        <div className="grid grid-cols-4 gap-3 shrink-0">
+                                        <div className="flex justify-between md:justify-end gap-1.5 md:gap-3 shrink-0">
                                             <StatusBadge label="VPN" status={item.vpn} icon="activity" />
                                             <StatusBadge label="NET" status={item.internet} icon="wifi" />
                                             <StatusBadge label="RAD" status={item.radius} icon="shield" />
@@ -328,9 +306,9 @@
                             })}
                         </div>
 
-                        <footer className="mt-20 text-center pb-16 opacity-40">
-                            <p className="text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.4em]">Last Sync: {lastSync || "Updating..."}</p>
-                            <p className="text-xs font-bold text-slate-400 mt-2 uppercase">Dole Network Monitoring • NT SNAPS Team</p>
+                        <footer className="mt-16 text-center pb-10 opacity-60">
+                            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">Last Sync: {lastSync}</p>
+                            <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase">Dole Monitor • NT SNAPS Team 2026</p>
                         </footer>
                     </div>
                 </div>
