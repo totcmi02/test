@@ -167,7 +167,6 @@
                 const isUp = val === "UP" || val === "ONLINE";
                 const isDown = val === "DOWN" || val === "OFFLINE";
                 return (
-                    /* ปรับขนาด badge ใน desktop mode ให้กว้างขึ้นและ icon เหมาะสม */
                     <div className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all h-12 w-full max-w-[60px] md:h-14 md:max-w-none md:w-20 ${
                         isUp ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400' : 
                         isDown ? 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400 animate-pulse' : 
@@ -214,7 +213,15 @@
                                             return (
                                                 <div key={key} className="flex justify-between items-start py-3 px-4 border-b border-slate-100 dark:border-slate-800 last:border-0">
                                                     <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mr-4 pt-1">{key}</span>
-                                                    <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right break-words max-w-[180px]">{value || "-"}</span>
+                                                    {/* แก้ไข: ทำให้พิกัดกด Link ได้ */}
+                                                    {key === "พิกัด" && value ? (
+                                                        <a href={`https://www.google.com/maps/search/?api=1&query=${value}`} target="_blank" rel="noopener noreferrer" 
+                                                           className="text-xs font-black text-emerald-600 dark:text-emerald-400 text-right break-words max-w-[180px] underline decoration-dotted hover:text-emerald-500 flex items-center gap-1 justify-end">
+                                                           {value} <Icon name="map-pin" size={12} />
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right break-words max-w-[180px]">{value || "-"}</span>
+                                                    )}
                                                 </div>
                                             );
                                         }) : <div className="py-10 text-center text-slate-400 text-xs font-bold uppercase italic tracking-widest">Detail data not found</div>}
@@ -232,9 +239,16 @@
                         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
                             <div>
                                 <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter dark:text-white leading-none">Dole <span className="text-emerald-500">Network</span></h1>
-                                <div className="flex items-center gap-2 mt-2">
-                                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-ping"></span>
-                                    <p className="text-[10px] md:text-xs font-black text-slate-400 dark:text-slate-400 uppercase tracking-widest">{DATA_SOURCES[activeTab].name} Monitoring Live</p>
+                                {/* แก้ไข: ปรับ Header Monitoring Live ให้ดูเด่นและชัดเจน */}
+                                <div className="inline-flex items-center gap-3 mt-3 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
+                                    <div className="relative flex h-3 w-3">
+                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                                      <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase leading-none tracking-widest mb-0.5">Current System</span>
+                                        <span className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider">{DATA_SOURCES[activeTab].name} LIVE MONITOR</span>
+                                    </div>
                                 </div>
                             </div>
                             <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
@@ -295,7 +309,6 @@
                                                 </div>
                                                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                                                     <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tighter">ID: {item.Identity || "-"}</p>
-                                                    {/* เพิ่ม Uptime ในหน้าแรก */}
                                                     <p className="text-[10px] font-bold text-emerald-500/80 dark:text-emerald-400/80 uppercase tracking-tighter flex items-center gap-1">
                                                         <Icon name="clock" size={10} /> {item.uptime || "00:00:00"}
                                                     </p>
@@ -314,8 +327,15 @@
                         </div>
 
                         <footer className="mt-16 text-center pb-10 opacity-60">
-                            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">Last Sync: {lastSync}</p>
-                            <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase">Dole Monitor • NT CHIANGMAI SNAPS TEAM</p>
+                            {/* แก้ไข: เพิ่มจุดเขียว Active Ping หน้า Last Sync */}
+                            <div className="flex justify-center items-center gap-2 mb-1">
+                                <span className="relative flex h-2 w-2">
+                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                                </span>
+                                <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">Last Sync: {lastSync}</p>
+                            </div>
+                            <p className="text-[9px] font-bold text-slate-400 uppercase">Dole Monitor • NT CHIANGMAI SNAPS TEAM</p>
                         </footer>
                     </div>
                 </div>
@@ -327,5 +347,3 @@
     </script>
 </body>
 </html>
-
-
