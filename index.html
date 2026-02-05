@@ -14,6 +14,8 @@
         body { font-family: 'Inter', 'Noto Sans Thai', sans-serif; transition: background-color 0.3s ease; }
         .dark { background-color: #020617; }
         i[data-lucide] svg { width: 100% !important; height: 100% !important; }
+        @keyframes pulse-soft { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        .animate-pulse-soft { animation: pulse-soft 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
     </style>
     <script>
         tailwind.config = { darkMode: 'class' }
@@ -64,7 +66,7 @@
                 document.documentElement.classList.toggle('dark');
             };
 
-            // ฟังก์ชันช่วยแยก CSV ที่รองรับเครื่องหมายคอมม่าภายใน Quote (เช่น ในที่อยู่)
+            // ระบบแยก CSV ที่รองรับเครื่องหมายคอมม่าในข้อมูล
             const parseCSVLine = (text) => {
                 const result = [];
                 let cur = '';
@@ -97,11 +99,7 @@
                         headers.forEach((h, i) => {
                             detailObj[h] = values[i] ? values[i].replace(/^"|"$/g, '').trim() : "";
                         });
-                        
-                        // ใช้ "Identity" เป็นกุญแจเชื่อมข้อมูล (ตัวเล็กตัวใหญ่ตรงตามหัวตาราง)
-                        if (detailObj["Identity"]) {
-                            detailsMap[detailObj["Identity"]] = detailObj;
-                        }
+                        if (detailObj["Identity"]) detailsMap[detailObj["Identity"]] = detailObj;
                     });
                     setDetails(detailsMap);
                 } catch (err) { console.error("Detail Error:", err); }
@@ -112,10 +110,8 @@
                 setLoading(true);
                 try {
                     await fetchDetails();
-                    const currentUrl = DATA_SOURCES[activeTab].url;
-                    const response = await fetch(`${currentUrl}&t=${new Date().getTime()}`);
+                    const response = await fetch(`${DATA_SOURCES[activeTab].url}&t=${new Date().getTime()}`);
                     const csvText = await response.text();
-                    
                     const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== "");
                     const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
                     
@@ -136,7 +132,6 @@
                         });
                         return obj;
                     });
-
                     setItems(parsedItems);
                     setLastSync(new Date().toLocaleTimeString('th-TH'));
                 } catch (err) { console.error(err); }
@@ -175,12 +170,12 @@
                 const isDown = val === "DOWN" || val === "OFFLINE";
                 return (
                     <div className={`flex flex-col items-center justify-center p-1.5 rounded-xl border transition-all h-14 md:h-16 w-16 md:w-20 ${
-                        isUp ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600' : 
-                        isDown ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 animate-pulse' : 
+                        isUp ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' : 
+                        isDown ? 'bg-rose-500/10 border-rose-500/20 text-rose-600 dark:text-rose-400 animate-pulse' : 
                         'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 border-dashed'
                     }`}>
                         <Icon name={icon} size={16} className="mb-1" />
-                        <span className="text-[8px] font-bold uppercase opacity-70 leading-none">{label}</span>
+                        <span className="text-[8px] font-bold uppercase opacity-70 leading-none mb-0.5">{label}</span>
                         <span className="text-[10px] font-black">{isUp ? "UP" : isDown ? "DOWN" : "WAIT"}</span>
                     </div>
                 );
@@ -190,43 +185,47 @@
                 <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-slate-950' : 'bg-slate-50'}`}>
                     
                     {/* Drawer Overlay */}
-                    <div className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity ${selectedItem ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSelectedItem(null)}></div>
+                    <div className={`fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity duration-300 ${selectedItem ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSelectedItem(null)}></div>
 
-                    {/* Side Drawer (Design เดิม) */}
-                    <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white dark:bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ${selectedItem ? 'translate-x-0' : 'translate-x-full'}`}>
+                    {/* Side Drawer (Original Design with Filtered Data) */}
+                    <div className={`fixed top-0 right-0 h-full w-full max-w-md bg-white dark:bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ease-in-out transform ${selectedItem ? 'translate-x-0' : 'translate-x-full'} border-l border-slate-200 dark:border-slate-800`}>
                         {selectedItem && (
                             <div className="flex flex-col h-full">
                                 <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/50">
                                     <div className="min-w-0">
-                                        <h2 className="text-xl font-black text-slate-800 dark:text-white uppercase truncate">
+                                        <h2 className="text-xl font-black text-slate-800 dark:text-white uppercase truncate tracking-tight">
                                             {details[selectedItem.Identity]?.["ห้องสมุดประชาชน"] || selectedItem.name}
                                         </h2>
-                                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest">Site Information</p>
+                                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest opacity-70">Site Information</p>
                                     </div>
-                                    <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full dark:text-white"><Icon name="x" size={24} /></button>
+                                    <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full transition-colors dark:text-white shrink-0">
+                                        <Icon name="x" size={24} />
+                                    </button>
                                 </div>
                                 
                                 <div className="flex-1 overflow-y-auto p-6 space-y-6">
                                     <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Circuit ID</p>
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Circuit ID</p>
                                             <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.circuit || "-"}</p>
                                         </div>
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Uptime</p>
+                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-100 dark:border-slate-700 shadow-sm">
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-widest">Uptime</p>
                                             <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.uptime || "-"}</p>
                                         </div>
                                     </div>
 
-                                    <div className="space-y-1 bg-slate-50 dark:bg-slate-800/20 rounded-3xl p-2 border border-slate-100 dark:border-slate-800">
+                                    <div className="space-y-1 bg-slate-50/50 dark:bg-slate-800/20 rounded-3xl p-2 border border-slate-100 dark:border-slate-800">
                                         {details[selectedItem.Identity] ? (
                                             Object.entries(details[selectedItem.Identity]).map(([key, value]) => {
-                                                if (key === "Identity") return null;
+                                                // กรองข้อมูลที่วงปากกาน้ำเงินออก (ซ่อน "ที่", "Identity" และ "ชื่อหน่วยงานซ้ำ")
+                                                if (["Identity", "ที่", "ห้องสมุดประชาชน"].includes(key)) return null;
+
                                                 return (
-                                                    <div key={key} className="flex justify-between items-center py-3 px-4 border-b border-slate-100/50 dark:border-slate-800/50 last:border-0 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-colors">
-                                                        <span className="text-[10px] font-bold text-slate-500 uppercase mr-4 shrink-0">{key}</span>
+                                                    <div key={key} className="flex justify-between items-center py-3 px-4 border-b border-slate-100/50 dark:border-slate-800/50 last:border-0 hover:bg-white dark:hover:bg-slate-800 rounded-xl transition-colors group">
+                                                        <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mr-4 shrink-0">{key}</span>
                                                         {key === "พิกัด" ? (
-                                                            <a href={`https://www.google.com/maps?q=${value}`} target="_blank" className="text-xs font-black text-blue-600 underline truncate">{value}</a>
+                                                            <a href={`https://www.google.com/maps/search/?api=1&query=${value}`} target="_blank" className="text-xs font-black text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-4 truncate">{value}</a>
                                                         ) : (
                                                             <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right">{value || "-"}</span>
                                                         )}
@@ -234,70 +233,103 @@
                                                 );
                                             })
                                         ) : (
-                                            <div className="py-10 text-center text-slate-400 font-bold uppercase text-xs">No detail record found</div>
+                                            <div className="py-20 text-center">
+                                                <Icon name="database-zap" size={32} className="mx-auto mb-2 text-slate-300 opacity-50" />
+                                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">No detailed records</p>
+                                            </div>
                                         )}
                                     </div>
                                 </div>
                                 <div className="p-6 border-t border-slate-100 dark:border-slate-800">
-                                    <button onClick={() => setSelectedItem(null)} className="w-full py-4 bg-emerald-600 text-white rounded-2xl font-black uppercase text-sm shadow-lg">Close</button>
+                                    <button onClick={() => setSelectedItem(null)} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-black uppercase text-sm tracking-widest shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all">Close Panel</button>
                                 </div>
                             </div>
                         )}
                     </div>
 
+                    {/* Main Content (Design เดิม) */}
                     <div className="max-w-6xl mx-auto p-4 md:p-8">
                         <header className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
-                            <div>
-                                <h1 className="text-2xl font-extrabold uppercase tracking-tight dark:text-white">Dole <span className="text-emerald-600">Network</span> Monitor</h1>
-                                <p className="text-sm font-bold text-slate-400 uppercase">{DATA_SOURCES[activeTab].name}</p>
+                            <div className="flex flex-col gap-1">
+                                <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter dark:text-white leading-none">Dole <span className="text-emerald-600">Network</span> Monitor</h1>
+                                <div className="flex items-center gap-2">
+                                    <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+                                    <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">System Live: {DATA_SOURCES[activeTab].name}</span>
+                                </div>
                             </div>
-                            <div className="flex gap-3 w-full lg:w-auto">
-                                <div className="p-1.5 bg-slate-200 dark:bg-slate-900 rounded-2xl flex gap-1 flex-1 md:flex-none">
+                            <div className="flex flex-wrap gap-2 w-full lg:w-auto">
+                                <div className="p-1.5 bg-slate-200 dark:bg-slate-900 rounded-2xl flex gap-1 flex-1 md:flex-none shadow-inner">
                                     {Object.keys(DATA_SOURCES).filter(k=>k!=='detail_source').map(k => (
-                                        <button key={k} onClick={()=>setActiveTab(k)} className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${activeTab===k ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow-sm' : 'text-slate-500'}`}>
+                                        <button key={k} onClick={()=>setActiveTab(k)} className={`px-6 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${activeTab===k ? 'bg-white dark:bg-slate-800 text-emerald-600 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                            <Icon name={DATA_SOURCES[k].icon} size={14} />
                                             {DATA_SOURCES[k].name}
                                         </button>
                                     ))}
                                 </div>
-                                <button onClick={toggleDarkMode} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800"><Icon name={isDarkMode?"sun":"moon"} size={20}/></button>
-                                <button onClick={()=>fetchData(true)} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800"><Icon name="refresh-cw" className={isRefreshing?'animate-spin':''} size={20}/></button>
+                                <div className="flex gap-2">
+                                    <button onClick={toggleDarkMode} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 active:scale-95 transition-all"><Icon name={isDarkMode?"sun":"moon"} size={20}/></button>
+                                    <button onClick={()=>fetchData(true)} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 active:scale-95 transition-all"><Icon name="refresh-cw" className={isRefreshing?'animate-spin':''} size={20}/></button>
+                                </div>
                             </div>
                         </header>
 
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 text-center">
-                            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-100 dark:border-slate-800"><p className="text-[10px] font-bold text-slate-400 uppercase mb-1">TOTAL</p><div className="text-3xl font-black dark:text-white">{stats.total}</div></div>
-                            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-emerald-500/20"><p className="text-[10px] font-bold text-emerald-600 uppercase mb-1">ONLINE</p><div className="text-3xl font-black text-emerald-600">{stats.online}</div></div>
-                            <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-rose-500/20"><p className="text-[10px] font-bold text-rose-600 uppercase mb-1">OFFLINE</p><div className="text-3xl font-black text-rose-600">{stats.offline}</div></div>
-                            <div className="bg-emerald-600 p-5 rounded-3xl shadow-lg text-white"><p className="text-[10px] font-bold text-emerald-100 uppercase mb-1">HEALTH</p><div className="text-3xl font-black">{stats.health}%</div></div>
-                        </div>
-
-                        <div className="relative mb-8">
-                            <Icon name="search" size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input type="text" placeholder="Search site or identity..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-12 pr-4 py-4 rounded-2xl bg-white dark:bg-slate-900 dark:text-white shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none font-bold" />
-                        </div>
-
-                        <div className="space-y-4">
-                            {loading ? <div className="py-20 text-center"><Icon name="refresh-cw" className="animate-spin mx-auto text-emerald-500" size={32} /></div> :
-                            filteredItems.map((item, idx) => (
-                                <div key={idx} onClick={()=>setSelectedItem(item)} className="bg-white dark:bg-slate-900 p-5 rounded-[2rem] border border-slate-100 dark:border-slate-800 hover:border-emerald-500/50 cursor-pointer transition-all flex flex-col md:flex-row md:items-center gap-6">
-                                    <div className="flex items-center gap-4 flex-1">
-                                        <div className="w-14 h-14 bg-slate-50 dark:bg-slate-800 rounded-2xl flex items-center justify-center font-black text-slate-400 border border-slate-100 dark:border-slate-700">{item.id || idx+1}</div>
-                                        <div className="min-w-0">
-                                            <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 truncate">{item.name || "Unknown"}</h3>
-                                            <div className="flex gap-2">
-                                                <span className="text-[10px] font-bold px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-md uppercase">ID: {item.Identity || "-"}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div className="grid grid-cols-4 gap-2">
-                                        <StatusBadge label="VPN" status={item.vpn} icon="activity" />
-                                        <StatusBadge label="NET" status={item.internet} icon="wifi" />
-                                        <StatusBadge label="RAD" status={item.radius} icon="shield" />
-                                        <StatusBadge label="LOG" status={item.syslog} icon="database" />
-                                    </div>
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                            {[
+                                { label: 'TOTAL', val: stats.total, color: 'slate-400', bg: 'bg-white dark:bg-slate-900' },
+                                { label: 'ONLINE', val: stats.online, color: 'emerald-600', bg: 'bg-white dark:bg-slate-900 border-emerald-500/20' },
+                                { label: 'OFFLINE', val: stats.offline, color: 'rose-600', bg: 'bg-white dark:bg-slate-900 border-rose-500/20' },
+                                { label: 'HEALTH', val: stats.health + '%', color: 'white', bg: 'bg-emerald-600 shadow-emerald-500/20 shadow-lg border-transparent' }
+                            ].map((s, i) => (
+                                <div key={i} className={`${s.bg} p-6 rounded-[2rem] border transition-all duration-300 text-center`}>
+                                    <p className={`text-[10px] font-black uppercase tracking-widest mb-1 ${s.color === 'white' ? 'text-emerald-100' : 'text-slate-400'}`}>{s.label}</p>
+                                    <div className={`text-3xl font-black ${s.color === 'white' ? 'text-white' : 'dark:text-white text-slate-800'}`}>{s.val}</div>
                                 </div>
                             ))}
                         </div>
+
+                        {/* Search Bar */}
+                        <div className="relative mb-8">
+                            <div className="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400"><Icon name="search" size={20} /></div>
+                            <input type="text" placeholder="Search by name or Identity..." value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-14 pr-6 py-5 rounded-[2rem] bg-white dark:bg-slate-900 dark:text-white border-none shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-lg transition-all" />
+                        </div>
+
+                        {/* List items */}
+                        <div className="space-y-4">
+                            {loading ? (
+                                <div className="py-20 text-center"><Icon name="refresh-cw" className="animate-spin mx-auto text-emerald-500" size={40} /></div>
+                            ) : filteredItems.length === 0 ? (
+                                <div className="py-20 text-center text-slate-400 font-bold uppercase tracking-widest border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-[2rem]">No matching sites found</div>
+                            ) : (
+                                filteredItems.map((item, idx) => (
+                                    <div key={idx} onClick={()=>setSelectedItem(item)} className="bg-white dark:bg-slate-900 p-5 rounded-[2.5rem] border border-slate-100 dark:border-slate-800 hover:border-emerald-500/50 hover:shadow-xl hover:shadow-emerald-500/5 cursor-pointer transition-all flex flex-col md:flex-row md:items-center gap-6 group">
+                                        <div className="flex items-center gap-5 flex-1 min-w-0">
+                                            <div className="w-16 h-16 bg-slate-50 dark:bg-slate-800 rounded-3xl flex items-center justify-center font-black text-xl text-slate-300 border border-slate-100 dark:border-slate-700 group-hover:bg-emerald-600 group-hover:text-white transition-all shrink-0">
+                                                {item.id || idx+1}
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <h3 className="text-xl font-bold text-slate-800 dark:text-slate-100 truncate mb-1">{item.name || "Unknown Site"}</h3>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <span className="text-[10px] font-black px-3 py-1 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-full uppercase tracking-tighter">ID: {item.Identity || "-"}</span>
+                                                    <span className="text-[10px] font-black px-3 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 rounded-full uppercase tracking-tighter">CIR: {item.circuit || "-"}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="grid grid-cols-4 gap-2 shrink-0">
+                                            <StatusBadge label="VPN" status={item.vpn} icon="activity" />
+                                            <StatusBadge label="NET" status={item.internet} icon="wifi" />
+                                            <StatusBadge label="RAD" status={item.radius} icon="shield" />
+                                            <StatusBadge label="LOG" status={item.syslog} icon="database" />
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+
+                        <footer className="mt-16 text-center pb-12 opacity-40">
+                            <p className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-[0.3em]">Last Update: {lastSync || "Waiting..."}</p>
+                            <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase">Dole Network Monitoring • NT SNAPS Team</p>
+                        </footer>
                     </div>
                 </div>
             );
