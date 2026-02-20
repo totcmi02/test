@@ -17,6 +17,27 @@
         .stats-card { cursor: pointer; transition: all 0.2s ease; }
         .stats-active { ring: 3px solid #10b981; ring-offset: 2px; }
         .text-pretty { text-wrap: pretty; }
+
+        /* --- แก้ไขระบบ Animation การกระพริบ --- */
+        /* ระดับ 1: Warning (ช้า - เปลี่ยนเป็นสีฟ้า Sky Blue) */
+        @keyframes boom-glow-slow {
+            0%, 100% { box-shadow: 0 0 5px rgba(14, 165, 233, 0.4); transform: scale(1); }
+            50% { box-shadow: 0 0 15px rgba(14, 165, 233, 0.7); transform: scale(1.02); }
+        }
+        /* ระดับ 2: Critical (กลาง - แดง) */
+        @keyframes boom-glow {
+            0%, 100% { box-shadow: 0 0 5px rgba(225, 29, 72, 0.4); transform: scale(1); }
+            50% { box-shadow: 0 0 20px rgba(225, 29, 72, 0.8); transform: scale(1.05); }
+        }
+        /* ระดับ 3: Fatal (เร็ว - ม่วง) */
+        @keyframes boom-glow-fast {
+            0%, 100% { box-shadow: 0 0 5px rgba(147, 51, 234, 0.4); transform: scale(1); }
+            50% { box-shadow: 0 0 25px rgba(147, 51, 234, 1); transform: scale(1.08); }
+        }
+
+        .animate-boom-slow { animation: boom-glow-slow 2s infinite ease-in-out; }
+        .animate-boom { animation: boom-glow 1.2s infinite ease-in-out; }
+        .animate-boom-fast { animation: boom-glow-fast 0.7s infinite ease-in-out; }
     </style>
     <script>
         tailwind.config = { darkMode: 'class' }
@@ -140,6 +161,28 @@
                 return { label: "ABNORMAL", color: "bg-amber-500" };
             };
 
+            const getOfflineDays = (uptime) => {
+                if(!uptime || uptime === "-") return 0;
+                const dateParts = uptime.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+                if(dateParts) {
+                    const upDate = new Date(dateParts[3], dateParts[2]-1, dateParts[1]);
+                    const today = new Date();
+                    today.setHours(0,0,0,0);
+                    const diffTime = Math.abs(today - upDate);
+                    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
+                }
+                const dayMatch = uptime.match(/(\d+)\s*(d|day)/i);
+                return dayMatch ? parseInt(dayMatch[1]) : 0;
+            };
+
+            // --- แก้ไขสี WARNING เป็นสีฟ้า (Sky Blue) ---
+            const getOfflineSeverity = (days) => {
+                if (days >= 7) return { bg: "bg-purple-600", border: "border-purple-400", glow: "animate-boom-fast", icon: "zap", label: "FATAL" };
+                if (days >= 2) return { bg: "bg-rose-600", border: "border-rose-400", glow: "animate-boom", icon: "alert-triangle", label: "CRITICAL" };
+                // เปลี่ยนจาก amber เป็น sky
+                return { bg: "bg-sky-500", border: "border-sky-300", glow: "animate-boom-slow", icon: "info", label: "WARNING" };
+            };
+
             const stats = useMemo(() => {
                 let online = 0, offline = 0, abnormal = 0;
                 items.forEach(i => {
@@ -183,7 +226,6 @@
                 <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-[#0a0f1d]' : 'bg-slate-50'}`}>
                     <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity ${selectedItem ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSelectedItem(null)}></div>
 
-                    {/* Side Drawer - Detail */}
                     <div className={`fixed top-0 right-0 h-full w-full max-w-lg bg-white dark:bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ${selectedItem ? 'translate-x-0' : 'translate-x-full'} border-l border-slate-200 dark:border-slate-800`}>
                         {selectedItem && (
                             <div className="flex flex-col h-full">
@@ -234,12 +276,9 @@
                     </div>
 
                     <div className="max-w-7xl mx-auto px-4 py-6 md:px-10 md:py-10">
-                        {/* Header Section */}
                         <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
                             <div>
                                 <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter dark:text-white leading-none">Dole <span className="text-emerald-500">Network</span></h1>
-                                
-                                {/* MODIFIED: Enhanced Status Card */}
                                 <div className="inline-flex items-center gap-4 mt-4 bg-white dark:bg-slate-900 px-6 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all hover:shadow-md">
                                     <div className="relative flex h-4 w-4 shrink-0">
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
@@ -252,8 +291,6 @@
                                         </span>
                                     </div>
                                 </div>
-                                {/* END MODIFIED */}
-
                             </div>
                             <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
                                 <div className="flex bg-slate-200 dark:bg-slate-900 p-1 rounded-xl shrink-0">
@@ -270,7 +307,6 @@
                             </div>
                         </header>
 
-                        {/* Stats Bar */}
                         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-8">
                             {[
                                 { id: 'TOTAL', label: 'TOTAL SITES', val: stats.total, color: 'text-slate-800 dark:text-slate-100', bg: 'bg-white dark:bg-slate-900' },
@@ -287,33 +323,43 @@
                             ))}
                         </div>
 
-                        {/* Search Bar */}
                         <div className="relative mb-6">
                             <Icon name="search" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input type="text" placeholder="Search site..." value={search} onChange={e=>setSearch(e.target.value)} 
                                    className="w-full pl-12 pr-6 py-4 rounded-2xl bg-white dark:bg-slate-900 dark:text-slate-100 border-none shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-sm" />
                         </div>
 
-                        {/* List Items */}
                         <div className="space-y-3">
                             {loading ? (
                                 <div className="py-20 text-center"><Icon name="refresh-cw" className="animate-spin mx-auto text-emerald-500" size={32} /></div>
                             ) : filteredItems.map((item, idx) => {
                                 const status = getSiteSummary(item);
+                                const offlineDays = getOfflineDays(item.uptime);
+                                const isDown = status.label !== "READY";
+                                const severity = isDown ? getOfflineSeverity(offlineDays) : null;
+
                                 return (
                                     <div key={idx} onClick={()=>setSelectedItem(item)} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-lg transition-all flex flex-col md:flex-row md:items-center gap-4 group cursor-pointer">
                                         <div className="flex items-center gap-4 flex-1 min-w-0">
                                             <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center font-black text-xs md:text-sm text-slate-400 dark:text-slate-500 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0">
                                                 {item.id || idx+1}
                                             </div>
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-2 mb-0.5">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                                                     <h3 className="text-sm md:text-base font-black text-slate-800 dark:text-slate-100 truncate">{item.name || "Unknown"}</h3>
                                                     <span className={`px-2 py-0.5 rounded-md text-[8px] font-black text-white shrink-0 ${status.color}`}>{status.label}</span>
+                                                    
+                                                    {/* --- ปรับปรุงสี WARNING เป็นสีฟ้า --- */}
+                                                    {isDown && (
+                                                        <span className={`${severity.glow} inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${severity.bg} text-white text-[9px] md:text-[10px] font-black uppercase tracking-tighter border-2 ${severity.border} transition-all`}>
+                                                            <Icon name={severity.icon} size={10} className="fill-white" />
+                                                            {severity.label} {offlineDays > 0 ? `${offlineDays} DAYS` : ''}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <div className="flex flex-wrap gap-x-3 gap-y-1">
                                                     <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tighter">ID: {item.Identity || "-"}</p>
-                                                    <p className="text-[10px] font-bold text-emerald-500/80 dark:text-emerald-400/80 uppercase tracking-tighter flex items-center gap-1">
+                                                    <p className={`text-[10px] font-bold flex items-center gap-1 uppercase tracking-tighter ${isDown ? 'text-rose-500 font-black' : 'text-emerald-500/80 dark:text-emerald-400/80'}`}>
                                                         <Icon name="clock" size={10} /> {item.uptime || "00:00:00"}
                                                     </p>
                                                 </div>
@@ -350,4 +396,3 @@
     </script>
 </body>
 </html>
-
