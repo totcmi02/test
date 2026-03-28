@@ -253,7 +253,7 @@
         // หา key ชื่อหน่วยงานใน detail (ต่างกันระหว่าง library กับ sorkor)
         const getDetailTitle = function(detailObj) {
             if (!detailObj) return null;
-            const titleKeys = ["ห้องสมุดประชาชน", "ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ", "Name"];
+            const titleKeys = ["ห้องสมุดประชาชน", "สำนักงานส่งเสริมการเรียนรู้อำเภอ", "ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ", "Name"];
             for (let k of titleKeys) {
                 if (detailObj[k]) return detailObj[k];
             }
@@ -269,7 +269,7 @@
         ];
 
         // keys ที่ไม่ต้องแสดงใน detail panel
-        const HIDDEN_KEYS = ["Identity", "ที่", "ห้องสมุดประชาชน", "ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ", "Name"];
+        const HIDDEN_KEYS = ["Identity", "ที่", "ห้องสมุดประชาชน", "สำนักงานส่งเสริมการเรียนรู้อำเภอ", "ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ", "Name"];
 
         return (
             <div className={"min-h-screen transition-colors duration-300 " + (isDarkMode ? 'dark bg-[#0a0f1d]' : 'bg-slate-50')}>
