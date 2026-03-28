@@ -13,386 +13,472 @@
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Noto+Sans+Thai:wght@300;400;500;600;700;800&display=swap');
         body { font-family: 'Inter', 'Noto Sans Thai', sans-serif; transition: background-color 0.3s ease; }
         .dark { background-color: #020617; }
-        i[data-lucide] svg { width: 100% !important; height: 100% !important; }
+        i[data-lucide] svg { width: 100% !important; height: 100% !important; stroke: currentColor !important; }
         .stats-card { cursor: pointer; transition: all 0.2s ease; }
-        .stats-active { ring: 3px solid #10b981; ring-offset: 2px; }
-        .text-pretty { text-wrap: pretty; }
+        .stats-active { box-shadow: 0 0 0 3px #10b981; }
 
-        /* --- แก้ไขระบบ Animation การกระพริบ --- */
-        /* ระดับ 1: Warning (ช้า - เปลี่ยนเป็นสีฟ้า Sky Blue) */
         @keyframes boom-glow-slow {
             0%, 100% { box-shadow: 0 0 5px rgba(14, 165, 233, 0.4); transform: scale(1); }
             50% { box-shadow: 0 0 15px rgba(14, 165, 233, 0.7); transform: scale(1.02); }
         }
-        /* ระดับ 2: Critical (กลาง - แดง) */
         @keyframes boom-glow {
             0%, 100% { box-shadow: 0 0 5px rgba(225, 29, 72, 0.4); transform: scale(1); }
             50% { box-shadow: 0 0 20px rgba(225, 29, 72, 0.8); transform: scale(1.05); }
         }
-        /* ระดับ 3: Fatal (เร็ว - ม่วง) */
         @keyframes boom-glow-fast {
             0%, 100% { box-shadow: 0 0 5px rgba(147, 51, 234, 0.4); transform: scale(1); }
             50% { box-shadow: 0 0 25px rgba(147, 51, 234, 1); transform: scale(1.08); }
         }
-
         .animate-boom-slow { animation: boom-glow-slow 2s infinite ease-in-out; }
         .animate-boom { animation: boom-glow 1.2s infinite ease-in-out; }
         .animate-boom-fast { animation: boom-glow-fast 0.7s infinite ease-in-out; }
     </style>
-    <script>
-        tailwind.config = { darkMode: 'class' }
-    </script>
+    <script>tailwind.config = { darkMode: 'class' }</script>
 </head>
 <body>
-    <div id="root"></div>
+<div id="root"></div>
+<script type="text/babel">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-    <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
-        
-        const Icon = ({ name, size = 16, className = "" }) => {
-            useEffect(() => { if(window.lucide) lucide.createIcons(); }, [name, className]);
+    const Icon = ({ name, size = 16, className = "" }) => {
+        const ref = useRef(null);
+        useEffect(() => {
+            if (ref.current && window.lucide) {
+                lucide.createIcons({ nodes: [ref.current] });
+            }
+        }, [name]);
+        return (
+            <div ref={ref} className={"flex items-center justify-center shrink-0 " + className}
+                 style={{ width: size, height: size, color: 'currentColor' }}>
+                <i data-lucide={name} style={{ width: size, height: size }}></i>
+            </div>
+        );
+    };
+
+    // ---- แต่ละ tab มี detail URL ของตัวเอง ----
+    const DATA_SOURCES = {
+        library: {
+            name: "ห้องสมุด", icon: "library",
+            url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSzJ7aDALJey3lKTNRANGT5k_oGzU3gFUsG6PaZPeiv7DBspAe1BJFD0j7SNacrfgadj9P7pzprNGUJ/pub?gid=0&single=true&output=csv",
+            detail: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=929090844&single=true&output=csv"
+        },
+        sorkor: {
+            name: "ศกร.", icon: "building-2",
+            url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSzL3B0zxcolUtUOl1YvCvZ56fiHV1afnNdDAatd47OFnQs4ZPIyXOlwAQBZRi6VirSdp5ynuxnlrat/pub?gid=1429115464&single=true&output=csv",
+            detail: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSzL3B0zxcolUtUOl1YvCvZ56fiHV1afnNdDAatd47OFnQs4ZPIyXOlwAQBZRi6VirSdp5ynuxnlrat/pub?gid=20149694&single=true&output=csv"
+        }
+    };
+
+    function App() {
+        const [activeTab, setActiveTab] = useState('library');
+        const [items, setItems] = useState([]);
+        const [details, setDetails] = useState({});
+        const [selectedItem, setSelectedItem] = useState(null);
+        const [loading, setLoading] = useState(true);
+        const [isRefreshing, setIsRefreshing] = useState(false);
+        const [search, setSearch] = useState("");
+        const [filterStatus, setFilterStatus] = useState("TOTAL");
+        const [lastSync, setLastSync] = useState(null);
+        const [isDarkMode, setIsDarkMode] = useState(false);
+
+        const toggleDarkMode = () => {
+            setIsDarkMode(function(prev) {
+                document.documentElement.classList.toggle('dark');
+                return !prev;
+            });
+        };
+
+        const parseCSVLine = function(text) {
+            const result = [];
+            let cur = '', inQuote = false;
+            for (let i = 0; i < text.length; i++) {
+                const c = text[i];
+                if (c === '"') inQuote = !inQuote;
+                else if (c === ',' && !inQuote) { result.push(cur.trim()); cur = ''; }
+                else cur += c;
+            }
+            result.push(cur.trim());
+            return result;
+        };
+
+        const activeTabRef = useRef(activeTab);
+        useEffect(function() { activeTabRef.current = activeTab; }, [activeTab]);
+
+        // fetchDetails ดึง URL ตาม tab ปัจจุบัน
+        const fetchDetails = async function() {
+            const tab = activeTabRef.current;
+            const url = DATA_SOURCES[tab].detail;
+            if (!url) return;
+            try {
+                const res = await fetch(url + "&t=" + Date.now());
+                const csv = await res.text();
+                const lines = csv.split(/\r?\n/).filter(function(l) { return l.trim(); });
+                const headers = parseCSVLine(lines[0]).map(function(h) { return h.replace(/^"|"$/g, '').trim(); });
+                const map = {};
+                lines.slice(1).forEach(function(line) {
+                    const vals = parseCSVLine(line);
+                    const obj = {};
+                    headers.forEach(function(h, i) { obj[h] = vals[i] ? vals[i].replace(/^"|"$/g, '').trim() : ""; });
+                    if (obj["Identity"]) map[obj["Identity"]] = obj;
+                });
+                setDetails(map);
+            } catch(e) { console.error(e); }
+        };
+
+        const fetchData = useCallback(async function(isManual, silent) {
+            isManual = isManual || false;
+            silent = silent || false;
+            if (isManual) setIsRefreshing(true);
+            if (!silent) setLoading(true);
+            const tab = activeTabRef.current;
+            try {
+                await fetchDetails();
+                const res = await fetch(DATA_SOURCES[tab].url + "&t=" + Date.now());
+                const csv = await res.text();
+                const lines = csv.split(/\r?\n/).filter(function(l) { return l.trim() && l.replace(/,/g,'').trim(); });
+                const headers = parseCSVLine(lines[0]).map(function(h) { return h.replace(/^"|"$/g,'').trim(); });
+                const parsed = lines.slice(1).map(function(line) {
+                    const vals = parseCSVLine(line);
+                    const obj = {};
+                    headers.forEach(function(h, i) {
+                        let key = h;
+                        if (h === "ลำดับ") key = "id";
+                        if (h === "ห้องสมุด" || h === "ชื่อหน่วยงาน" || h === "ชื่อ") key = "name";
+                        if (h === "Identity") key = "Identity";
+                        if (h === "เลขวงจร") key = "circuit";
+                        if (h === "VPN Status") key = "vpn";
+                        if (h === "Internet Status") key = "internet";
+                        if (h === "Radius Status") key = "radius";
+                        if (h === "Syslog Status") key = "syslog";
+                        if (h === "Cert Status") key = "cert";
+                        if (h === "Link Uptime") key = "uptime";
+                        obj[key] = vals[i] ? vals[i].replace(/^"|"$/g,'').trim() : "";
+                    });
+                    return obj;
+                }).filter(function(item) { return item.name || item.Identity; });
+                setItems(parsed);
+                setLastSync(new Date().toLocaleTimeString('th-TH'));
+            } catch(e) { console.error(e); }
+            finally {
+                if (!silent) setLoading(false);
+                setTimeout(function() { setIsRefreshing(false); }, 600);
+            }
+        }, []);
+
+        useEffect(function() {
+            setDetails({}); // ล้าง detail เก่าเมื่อ tab เปลี่ยน
+            setItems([]);
+            fetchData(false, false);
+        }, [activeTab]);
+
+        useEffect(function() {
+            const id = setInterval(function() { fetchData(false, true); }, 5 * 60 * 1000);
+            return function() { clearInterval(id); };
+        }, [activeTab]);
+
+        const getSiteSummary = function(item) {
+            const s = [item.vpn, item.internet, item.radius, item.syslog]
+                .map(function(v) { return String(v || "").toUpperCase().trim(); });
+            const upCount = s.filter(function(v) { return v === "UP" || v === "ONLINE"; }).length;
+            const total = s.filter(function(v) { return v !== ""; }).length;
+            const certMissing = String(item.cert || "").toUpperCase() === "MISSING";
+            if (total === 0) return { label: "WAITING", color: "bg-slate-400" };
+            if (upCount === 0) return { label: "NOT READY", color: "bg-rose-500" };
+            if (upCount < total) return { label: "ABNORMAL", color: "bg-amber-500" };
+            if (certMissing) return { label: "ABNORMAL", color: "bg-amber-500" };
+            return { label: "READY", color: "bg-emerald-500" };
+        };
+
+        const getOfflineDays = function(uptime) {
+            if (!uptime || uptime === "-") return 0;
+            const m = uptime.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+            if (m) {
+                const d = new Date(parseInt(m[3]), parseInt(m[2])-1, parseInt(m[1]));
+                const today = new Date(); today.setHours(0,0,0,0);
+                return Math.floor(Math.abs(today - d) / 86400000);
+            }
+            const dm = uptime.match(/(\d+)\s*(d|day)/i);
+            return dm ? parseInt(dm[1]) : 0;
+        };
+
+        const getOfflineSeverity = function(days) {
+            if (days >= 7) return { bg: "bg-purple-600", border: "border-purple-400", glow: "animate-boom-fast", icon: "zap", label: "FATAL" };
+            if (days >= 2) return { bg: "bg-rose-600", border: "border-rose-400", glow: "animate-boom", icon: "alert-triangle", label: "CRITICAL" };
+            return { bg: "bg-sky-500", border: "border-sky-300", glow: "animate-boom-slow", icon: "info", label: "WARNING" };
+        };
+
+        const stats = useMemo(function() {
+            let online = 0, offline = 0, abnormal = 0;
+            items.forEach(function(i) {
+                const s = getSiteSummary(i);
+                if (s.label === "READY") online++;
+                else if (s.label === "NOT READY") offline++;
+                else if (s.label === "ABNORMAL") abnormal++;
+            });
+            return { total: items.length, online, offline, abnormal, health: items.length > 0 ? Math.round((online / items.length) * 100) : 0 };
+        }, [items]);
+
+        const filteredItems = useMemo(function() {
+            return items.filter(function(i) {
+                const q = search.toLowerCase();
+                const match = (i.name||"").toLowerCase().includes(q) || (i.Identity||"").toLowerCase().includes(q);
+                const s = getSiteSummary(i);
+                if (filterStatus === "ONLINE") return match && s.label === "READY";
+                if (filterStatus === "OFFLINE") return match && s.label === "NOT READY";
+                if (filterStatus === "ABNORMAL") return match && s.label === "ABNORMAL";
+                return match;
+            });
+        }, [items, search, filterStatus]);
+
+        const StatusBadge = function({ status, label, icon }) {
+            const val = String(status || "").toUpperCase().trim();
+            const isUp = val === "UP" || val === "ONLINE";
+            const isMissing = val === "MISSING";
+            const isDown = val === "DOWN" || val === "OFFLINE";
+            let cls = 'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400 dark:text-slate-500';
+            if (isUp) cls = 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400';
+            else if (isMissing) cls = 'bg-orange-500/10 border-orange-400/40 text-orange-500 dark:text-orange-400 animate-pulse';
+            else if (isDown) cls = 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400 animate-pulse';
             return (
-                <div className={`flex items-center justify-center shrink-0 ${className}`} style={{ width: size, height: size }}>
-                    <i data-lucide={name} style={{ width: size, height: size }}></i>
+                <div className={"flex flex-col items-center justify-center p-1 rounded-lg border transition-all h-12 w-full max-w-[60px] md:h-14 md:max-w-none md:w-20 " + cls}>
+                    <Icon name={icon} size={14} className="mb-0.5" />
+                    <span className="text-[7px] md:text-[9px] font-bold uppercase opacity-80 leading-none">{label}</span>
+                    <span className="text-[9px] md:text-[11px] font-black">
+                        {isUp ? "UP" : isMissing ? "MISS" : isDown ? "DOWN" : "WAIT"}
+                    </span>
                 </div>
             );
         };
 
-        const DATA_SOURCES = {
-            library: { name: "ห้องสมุด", icon: "library", url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSzJ7aDALJey3lKTNRANGT5k_oGzU3gFUsG6PaZPeiv7DBspAe1BJFD0j7SNacrfgadj9P7pzprNGUJ/pub?gid=0&single=true&output=csv" },
-            sorkor: { name: "สกร.", icon: "building-2", url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=0&single=true&output=csv" },
-            detail_source: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvgi4Ytb4p4Mhq4e14vIrgx0LcFSZQnpcJuNLH87GiOqP3i_L_2qYmn7t5gzltTM8f1UsIG3zOlfij/pub?gid=929090844&single=true&output=csv"
+        // หา key ชื่อหน่วยงานใน detail (ต่างกันระหว่าง library กับ sorkor)
+        const getDetailTitle = function(detailObj) {
+            if (!detailObj) return null;
+            const titleKeys = ["ห้องสมุดประชาชน", "ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ", "Name"];
+            for (let k of titleKeys) {
+                if (detailObj[k]) return detailObj[k];
+            }
+            return null;
         };
 
-        function App() {
-            const [activeTab, setActiveTab] = useState('library');
-            const [items, setItems] = useState([]);
-            const [details, setDetails] = useState({});
-            const [selectedItem, setSelectedItem] = useState(null);
-            const [loading, setLoading] = useState(true);
-            const [isRefreshing, setIsRefreshing] = useState(false);
-            const [search, setSearch] = useState("");
-            const [filterStatus, setFilterStatus] = useState("TOTAL");
-            const [lastSync, setLastSync] = useState(null);
-            const [isDarkMode, setIsDarkMode] = useState(false);
+        const statCards = [
+            { id: 'TOTAL',    label: 'TOTAL SITES', val: stats.total,        color: 'text-slate-800 dark:text-slate-100', bg: 'bg-white dark:bg-slate-900' },
+            { id: 'ONLINE',   label: 'READY',       val: stats.online,       color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-white dark:bg-slate-900' },
+            { id: 'ABNORMAL', label: 'ABNORMAL',    val: stats.abnormal,     color: 'text-amber-500 dark:text-amber-400', bg: 'bg-white dark:bg-slate-900' },
+            { id: 'OFFLINE',  label: 'OFFLINE',     val: stats.offline,      color: 'text-rose-600 dark:text-rose-400', bg: 'bg-white dark:bg-slate-900' },
+            { id: 'HEALTH',   label: 'HEALTH',      val: stats.health + '%', color: 'text-white', bg: 'bg-emerald-600' }
+        ];
 
-            const toggleDarkMode = () => {
-                setIsDarkMode(!isDarkMode);
-                document.documentElement.classList.toggle('dark');
-            };
+        // keys ที่ไม่ต้องแสดงใน detail panel
+        const HIDDEN_KEYS = ["Identity", "ที่", "ห้องสมุดประชาชน", "ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ", "Name"];
 
-            const parseCSVLine = (text) => {
-                const result = [];
-                let cur = '';
-                let inQuote = false;
-                for (let i = 0; i < text.length; i++) {
-                    let char = text[i];
-                    if (char === '"') inQuote = !inQuote;
-                    else if (char === ',' && !inQuote) { result.push(cur.trim()); cur = ''; }
-                    else cur += char;
-                }
-                result.push(cur.trim());
-                return result;
-            };
+        return (
+            <div className={"min-h-screen transition-colors duration-300 " + (isDarkMode ? 'dark bg-[#0a0f1d]' : 'bg-slate-50')}>
 
-            const fetchDetails = async () => {
-                try {
-                    const response = await fetch(`${DATA_SOURCES.detail_source}&t=${new Date().getTime()}`);
-                    const csvText = await response.text();
-                    const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== "");
-                    const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
-                    const detailsMap = {};
-                    lines.slice(1).forEach(line => {
-                        const values = parseCSVLine(line);
-                        const detailObj = {};
-                        headers.forEach((h, i) => { detailObj[h] = values[i] ? values[i].replace(/^"|"$/g, '').trim() : ""; });
-                        if (detailObj["Identity"]) detailsMap[detailObj["Identity"]] = detailObj;
-                    });
-                    setDetails(detailsMap);
-                } catch (err) { console.error(err); }
-            };
+                <div className={"fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity " + (selectedItem ? 'opacity-100' : 'opacity-0 pointer-events-none')}
+                     onClick={function() { setSelectedItem(null); }}></div>
 
-            const fetchData = async (isManual = false) => {
-                if (isManual) setIsRefreshing(true);
-                setLoading(true);
-                try {
-                    await fetchDetails();
-                    const response = await fetch(`${DATA_SOURCES[activeTab].url}&t=${new Date().getTime()}`);
-                    const csvText = await response.text();
-                    const lines = csvText.split(/\r?\n/).filter(l => l.trim() !== "" && l.replace(/,/g, '').trim() !== "");
-                    const headers = parseCSVLine(lines[0]).map(h => h.replace(/^"|"$/g, '').trim());
-                    
-                    const parsedItems = lines.slice(1).map(line => {
-                        const values = parseCSVLine(line);
-                        const obj = {};
-                        headers.forEach((h, i) => {
-                            let key = h;
-                            if (h === "ลำดับ") key = "id";
-                            if (["ห้องสมุด", "ชื่อหน่วยงาน", "ชื่อ"].includes(h)) key = "name";
-                            if (h === "Identity") key = "Identity";
-                            if (h === "เลขวงจร") key = "circuit";
-                            if (h === "VPN Status") key = "vpn";
-                            if (h === "Internet Status") key = "internet";
-                            if (h === "Radius Status") key = "radius";
-                            if (h === "Syslog Status") key = "syslog";
-                            if (h === "Link Uptime") key = "uptime";
-                            obj[key] = values[i] ? values[i].replace(/^"|"$/g, '').trim() : "";
-                        });
-                        return obj;
-                    }).filter(item => item.name !== "" || item.Identity !== "");
-                    setItems(parsedItems);
-                    setLastSync(new Date().toLocaleTimeString('th-TH'));
-                } catch (err) { console.error(err); }
-                finally {
-                    setLoading(false);
-                    if (isManual) setTimeout(() => setIsRefreshing(false), 600);
-                }
-            };
-
-            useEffect(() => { fetchData(); }, [activeTab]);
-
-            const getSiteSummary = (item) => {
-                const s = [item.vpn, item.internet, item.radius, item.syslog].map(v => String(v || "").toUpperCase().trim());
-                const upCount = s.filter(v => v === "UP" || v === "ONLINE").length;
-                const totalMonitored = s.filter(v => v !== "").length;
-                if (totalMonitored === 0) return { label: "WAITING", color: "bg-slate-400" };
-                if (upCount === totalMonitored) return { label: "READY", color: "bg-emerald-500" };
-                if (upCount === 0) return { label: "NOT READY", color: "bg-rose-500" };
-                return { label: "ABNORMAL", color: "bg-amber-500" };
-            };
-
-            const getOfflineDays = (uptime) => {
-                if(!uptime || uptime === "-") return 0;
-                const dateParts = uptime.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-                if(dateParts) {
-                    const upDate = new Date(dateParts[3], dateParts[2]-1, dateParts[1]);
-                    const today = new Date();
-                    today.setHours(0,0,0,0);
-                    const diffTime = Math.abs(today - upDate);
-                    return Math.floor(diffTime / (1000 * 60 * 60 * 24));
-                }
-                const dayMatch = uptime.match(/(\d+)\s*(d|day)/i);
-                return dayMatch ? parseInt(dayMatch[1]) : 0;
-            };
-
-            // --- แก้ไขสี WARNING เป็นสีฟ้า (Sky Blue) ---
-            const getOfflineSeverity = (days) => {
-                if (days >= 7) return { bg: "bg-purple-600", border: "border-purple-400", glow: "animate-boom-fast", icon: "zap", label: "FATAL" };
-                if (days >= 2) return { bg: "bg-rose-600", border: "border-rose-400", glow: "animate-boom", icon: "alert-triangle", label: "CRITICAL" };
-                // เปลี่ยนจาก amber เป็น sky
-                return { bg: "bg-sky-500", border: "border-sky-300", glow: "animate-boom-slow", icon: "info", label: "WARNING" };
-            };
-
-            const stats = useMemo(() => {
-                let online = 0, offline = 0, abnormal = 0;
-                items.forEach(i => {
-                    const status = getSiteSummary(i);
-                    if (status.label === "READY") online++;
-                    else if (status.label === "NOT READY") offline++;
-                    else if (status.label === "ABNORMAL") abnormal++;
-                });
-                return { total: items.length, online, offline, abnormal, health: items.length > 0 ? Math.round((online / items.length) * 100) : 0 };
-            }, [items]);
-
-            const filteredItems = useMemo(() => {
-                return items.filter(i => {
-                    const matchesSearch = (i.name || "").toLowerCase().includes(search.toLowerCase()) || (i.Identity || "").toLowerCase().includes(search.toLowerCase());
-                    const status = getSiteSummary(i);
-                    if (filterStatus === "ONLINE") return matchesSearch && status.label === "READY";
-                    if (filterStatus === "OFFLINE") return matchesSearch && status.label === "NOT READY";
-                    if (filterStatus === "ABNORMAL") return matchesSearch && status.label === "ABNORMAL";
-                    return matchesSearch;
-                });
-            }, [items, search, filterStatus]);
-
-            const StatusBadge = ({ status, label, icon }) => {
-                const val = String(status || "").toUpperCase().trim();
-                const isUp = val === "UP" || val === "ONLINE";
-                const isDown = val === "DOWN" || val === "OFFLINE";
-                return (
-                    <div className={`flex flex-col items-center justify-center p-1 rounded-lg border transition-all h-12 w-full max-w-[60px] md:h-14 md:max-w-none md:w-20 ${
-                        isUp ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-600 dark:text-emerald-400' : 
-                        isDown ? 'bg-rose-500/10 border-rose-500/30 text-rose-600 dark:text-rose-400 animate-pulse' : 
-                        'bg-slate-100 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-400'
-                    }`}>
-                        <Icon name={icon} size={14} className="md:size-3.5 mb-0.5" />
-                        <span className="text-[7px] md:text-[9px] font-bold uppercase opacity-80 leading-none">{label}</span>
-                        <span className="text-[9px] md:text-[11px] font-black">{isUp ? "UP" : isDown ? "DOWN" : "WAIT"}</span>
-                    </div>
-                );
-            };
-
-            return (
-                <div className={`min-h-screen transition-colors duration-300 ${isDarkMode ? 'dark bg-[#0a0f1d]' : 'bg-slate-50'}`}>
-                    <div className={`fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity ${selectedItem ? 'opacity-100' : 'opacity-0 pointer-events-none'}`} onClick={() => setSelectedItem(null)}></div>
-
-                    <div className={`fixed top-0 right-0 h-full w-full max-w-lg bg-white dark:bg-slate-900 z-50 shadow-2xl transition-transform duration-300 ${selectedItem ? 'translate-x-0' : 'translate-x-full'} border-l border-slate-200 dark:border-slate-800`}>
-                        {selectedItem && (
-                            <div className="flex flex-col h-full">
-                                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/80">
-                                    <div className="min-w-0 pr-4">
-                                        <h2 className="text-xl font-black text-slate-800 dark:text-slate-100 uppercase truncate">
-                                            {details[selectedItem.Identity]?.["ห้องสมุดประชาชน"] || selectedItem.name}
-                                        </h2>
-                                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Detailed Node Status</p>
-                                    </div>
-                                    <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full dark:text-white shrink-0"><Icon name="x" size={24} /></button>
+                <div className={"fixed top-0 right-0 h-full w-full max-w-lg bg-white dark:bg-slate-900 z-50 shadow-2xl transition-transform duration-300 border-l border-slate-200 dark:border-slate-800 " + (selectedItem ? 'translate-x-0' : 'translate-x-full')}>
+                    {selectedItem && (
+                        <div className="flex flex-col h-full">
+                            <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/80">
+                                <div className="min-w-0 pr-4">
+                                    <h2 className="text-xl font-black text-slate-800 dark:text-slate-100 uppercase truncate">
+                                        {getDetailTitle(details[selectedItem.Identity]) || selectedItem.name}
+                                    </h2>
+                                    <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-widest mt-1">Detailed Node Status</p>
                                 </div>
-                                <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-tighter">Circuit ID</p>
-                                            <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.circuit || "-"}</p>
-                                        </div>
-                                        <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
-                                            <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-tighter">Uptime</p>
-                                            <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.uptime || "-"}</p>
-                                        </div>
+                                <button onClick={function() { setSelectedItem(null); }}
+                                        className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-full text-slate-600 dark:text-slate-300 shrink-0">
+                                    <Icon name="x" size={24} />
+                                </button>
+                            </div>
+                            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-tighter">Circuit ID</p>
+                                        <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.circuit || "-"}</p>
                                     </div>
-                                    <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-3xl p-2 border border-slate-100 dark:border-slate-800">
-                                        {details[selectedItem.Identity] ? Object.entries(details[selectedItem.Identity]).map(([key, value]) => {
-                                            if (["Identity", "ที่", "ห้องสมุดประชาชน"].includes(key)) return null;
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 text-center">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-tighter">Uptime</p>
+                                        <p className="text-sm font-black text-slate-700 dark:text-slate-200">{selectedItem.uptime || "-"}</p>
+                                    </div>
+                                    <div className="p-4 bg-slate-50 dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-700 text-center col-span-2">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1 tracking-tighter">Certificate Status</p>
+                                        <p className={"text-sm font-black " + (String(selectedItem.cert||"").toUpperCase() === "UP" ? 'text-emerald-600 dark:text-emerald-400' : 'text-orange-500 dark:text-orange-400')}>
+                                            {selectedItem.cert || "MISSING"}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="bg-slate-50/50 dark:bg-slate-800/20 rounded-3xl p-2 border border-slate-100 dark:border-slate-800">
+                                    {details[selectedItem.Identity]
+                                        ? Object.entries(details[selectedItem.Identity]).map(function([key, value]) {
+                                            if (HIDDEN_KEYS.includes(key)) return null;
                                             return (
                                                 <div key={key} className="flex justify-between items-start py-3 px-4 border-b border-slate-100 dark:border-slate-800 last:border-0">
                                                     <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase mr-4 pt-1">{key}</span>
-                                                    {key === "พิกัด" && value ? (
-                                                        <a href={`https://www.google.com/maps/search/?api=1&query=${value}`} target="_blank" rel="noopener noreferrer" 
-                                                           className="text-xs font-black text-emerald-600 dark:text-emerald-400 text-right break-words max-w-[180px] underline decoration-dotted hover:text-emerald-500 flex items-center gap-1 justify-end">
+                                                    {key === "พิกัด" && value
+                                                        ? <a href={"https://www.google.com/maps/search/?api=1&query=" + value} target="_blank" rel="noopener noreferrer"
+                                                             className="text-xs font-black text-emerald-600 dark:text-emerald-400 text-right break-words max-w-[180px] underline decoration-dotted hover:text-emerald-500 flex items-center gap-1 justify-end">
                                                             {value} <Icon name="map-pin" size={12} />
-                                                        </a>
-                                                    ) : (
-                                                        <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right break-words max-w-[180px]">{value || "-"}</span>
-                                                    )}
+                                                          </a>
+                                                        : <span className="text-xs font-black text-slate-800 dark:text-slate-200 text-right break-words max-w-[180px]">{value || "-"}</span>
+                                                    }
                                                 </div>
                                             );
-                                        }) : <div className="py-10 text-center text-slate-400 text-xs font-bold uppercase italic tracking-widest">Detail data not found</div>}
-                                    </div>
-                                </div>
-                                <div className="p-6">
-                                    <button onClick={() => setSelectedItem(null)} className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black uppercase text-sm tracking-widest transition-all shadow-lg shadow-emerald-500/20">Close</button>
+                                        })
+                                        : <div className="py-10 text-center text-slate-400 text-xs font-bold uppercase italic tracking-widest">Detail data not found</div>
+                                    }
                                 </div>
                             </div>
-                        )}
-                    </div>
-
-                    <div className="max-w-7xl mx-auto px-4 py-6 md:px-10 md:py-10">
-                        <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
-                            <div>
-                                <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter dark:text-white leading-none">Dole <span className="text-emerald-500">Network</span></h1>
-                                <div className="inline-flex items-center gap-4 mt-4 bg-white dark:bg-slate-900 px-6 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all hover:shadow-md">
-                                    <div className="relative flex h-4 w-4 shrink-0">
-                                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <span className="text-[9px] font-bold text-slate-400 uppercase leading-none tracking-widest mb-1">Current System</span>
-                                        <span className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight leading-none">
-                                            {DATA_SOURCES[activeTab].name}
-                                        </span>
-                                    </div>
-                                </div>
+                            <div className="p-6">
+                                <button onClick={function() { setSelectedItem(null); }}
+                                        className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black uppercase text-sm tracking-widest transition-all shadow-lg shadow-emerald-500/20">
+                                    Close
+                                </button>
                             </div>
-                            <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
-                                <div className="flex bg-slate-200 dark:bg-slate-900 p-1 rounded-xl shrink-0">
-                                    {Object.keys(DATA_SOURCES).filter(k=>k!=='detail_source').map(k => (
-                                        <button key={k} onClick={()=>setActiveTab(k)} className={`px-4 py-2 rounded-lg text-[10px] md:text-xs font-black transition-all flex items-center gap-2 ${activeTab===k ? 'bg-white dark:bg-slate-800 text-emerald-500 shadow-sm' : 'text-slate-500'}`}>
-                                            <Icon name={DATA_SOURCES[k].icon} size={14} />{DATA_SOURCES[k].name}
-                                        </button>
-                                    ))}
-                                </div>
-                                <div className="flex gap-2 shrink-0">
-                                    <button onClick={toggleDarkMode} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-800"><Icon name={isDarkMode?"sun":"moon"} size={18}/></button>
-                                    <button onClick={()=>fetchData(true)} className="p-3 bg-white dark:bg-slate-900 dark:text-white rounded-xl border border-slate-200 dark:border-slate-800"><Icon name="refresh-cw" className={isRefreshing?'animate-spin':''} size={18}/></button>
-                                </div>
-                            </div>
-                        </header>
-
-                        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-8">
-                            {[
-                                { id: 'TOTAL', label: 'TOTAL SITES', val: stats.total, color: 'text-slate-800 dark:text-slate-100', bg: 'bg-white dark:bg-slate-900' },
-                                { id: 'ONLINE', label: 'READY', val: stats.online, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-white dark:bg-slate-900' },
-                                { id: 'ABNORMAL', label: 'ABNORMAL', val: stats.abnormal, color: 'text-amber-500 dark:text-amber-400', bg: 'bg-white dark:bg-slate-900' },
-                                { id: 'OFFLINE', label: 'OFFLINE', val: stats.offline, color: 'text-rose-600 dark:text-rose-400', bg: 'bg-white dark:bg-slate-900' },
-                                { id: 'HEALTH', label: 'HEALTH', val: stats.health + '%', color: 'text-white', bg: 'bg-emerald-600 lg:col-span-1 col-span-2' }
-                            ].map((s, i) => (
-                                <div key={i} onClick={() => s.id !== 'HEALTH' && setFilterStatus(filterStatus === s.id ? "TOTAL" : s.id)} 
-                                     className={`stats-card ${s.bg} p-4 md:p-6 rounded-2xl border border-slate-100 dark:border-slate-800 transition-all ${filterStatus === s.id ? 'stats-active shadow-xl' : 'shadow-sm'}`}>
-                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mb-1 leading-none dark:text-slate-400">{s.label}</p>
-                                    <div className={`text-xl md:text-3xl font-black ${s.color}`}>{s.val}</div>
-                                </div>
-                            ))}
                         </div>
-
-                        <div className="relative mb-6">
-                            <Icon name="search" size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input type="text" placeholder="Search site..." value={search} onChange={e=>setSearch(e.target.value)} 
-                                   className="w-full pl-12 pr-6 py-4 rounded-2xl bg-white dark:bg-slate-900 dark:text-slate-100 border-none shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-sm" />
-                        </div>
-
-                        <div className="space-y-3">
-                            {loading ? (
-                                <div className="py-20 text-center"><Icon name="refresh-cw" className="animate-spin mx-auto text-emerald-500" size={32} /></div>
-                            ) : filteredItems.map((item, idx) => {
-                                const status = getSiteSummary(item);
-                                const offlineDays = getOfflineDays(item.uptime);
-                                const isDown = status.label !== "READY";
-                                const severity = isDown ? getOfflineSeverity(offlineDays) : null;
-
-                                return (
-                                    <div key={idx} onClick={()=>setSelectedItem(item)} className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-lg transition-all flex flex-col md:flex-row md:items-center gap-4 group cursor-pointer">
-                                        <div className="flex items-center gap-4 flex-1 min-w-0">
-                                            <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center font-black text-xs md:text-sm text-slate-400 dark:text-slate-500 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0">
-                                                {item.id || idx+1}
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                                                    <h3 className="text-sm md:text-base font-black text-slate-800 dark:text-slate-100 truncate">{item.name || "Unknown"}</h3>
-                                                    <span className={`px-2 py-0.5 rounded-md text-[8px] font-black text-white shrink-0 ${status.color}`}>{status.label}</span>
-                                                    
-                                                    {/* --- ปรับปรุงสี WARNING เป็นสีฟ้า --- */}
-                                                    {isDown && (
-                                                        <span className={`${severity.glow} inline-flex items-center gap-1.5 px-3 py-1 rounded-full ${severity.bg} text-white text-[9px] md:text-[10px] font-black uppercase tracking-tighter border-2 ${severity.border} transition-all`}>
-                                                            <Icon name={severity.icon} size={10} className="fill-white" />
-                                                            {severity.label} {offlineDays > 0 ? `${offlineDays} DAYS` : ''}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="flex flex-wrap gap-x-3 gap-y-1">
-                                                    <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tighter">ID: {item.Identity || "-"}</p>
-                                                    <p className={`text-[10px] font-bold flex items-center gap-1 uppercase tracking-tighter ${isDown ? 'text-rose-500 font-black' : 'text-emerald-500/80 dark:text-emerald-400/80'}`}>
-                                                        <Icon name="clock" size={10} /> {item.uptime || "00:00:00"}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="flex justify-between md:justify-end gap-1.5 md:gap-3 shrink-0">
-                                            <StatusBadge label="VPN" status={item.vpn} icon="activity" />
-                                            <StatusBadge label="NET" status={item.internet} icon="wifi" />
-                                            <StatusBadge label="RAD" status={item.radius} icon="shield" />
-                                            <StatusBadge label="LOG" status={item.syslog} icon="database" />
-                                        </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-
-                        <footer className="mt-16 text-center pb-10 opacity-60">
-                            <div className="flex justify-center items-center gap-2 mb-1">
-                                <span className="relative flex h-2 w-2">
-                                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
-                                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                                </span>
-                                <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">Last Sync: {lastSync}</p>
-                            </div>
-                            <p className="text-[9px] font-bold text-slate-400 uppercase">Dole Monitor • NT CHIANGMAI SNAPS TEAM</p>
-                        </footer>
-                    </div>
+                    )}
                 </div>
-            );
-        }
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+                <div className="max-w-7xl mx-auto px-4 py-6 md:px-10 md:py-10">
+                    <header className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
+                        <div>
+                            <h1 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-slate-900 dark:text-white leading-none">
+                                Dole <span className="text-emerald-500">Network</span>
+                            </h1>
+                            <div className="inline-flex items-center gap-4 mt-4 bg-white dark:bg-slate-900 px-6 py-3 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm">
+                                <div className="relative flex h-4 w-4 shrink-0">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-4 w-4 bg-emerald-500"></span>
+                                </div>
+                                <div className="flex flex-col">
+                                    <span className="text-[9px] font-bold text-slate-400 uppercase leading-none tracking-widest mb-1">Current System</span>
+                                    <span className="text-2xl md:text-3xl font-black text-emerald-600 dark:text-emerald-400 tracking-tight leading-none">
+                                        {DATA_SOURCES[activeTab].name}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+                            <div className="flex bg-slate-200 dark:bg-slate-900 p-1 rounded-xl shrink-0">
+                                {Object.keys(DATA_SOURCES).map(function(k) {
+                                    return (
+                                        <button key={k} onClick={function() { setActiveTab(k); }}
+                                                className={"px-4 py-2 rounded-lg text-[10px] md:text-xs font-black transition-all flex items-center gap-2 " + (activeTab === k ? 'bg-white dark:bg-slate-800 text-emerald-500 shadow-sm' : 'text-slate-500 dark:text-slate-400')}>
+                                            <Icon name={DATA_SOURCES[k].icon} size={14} />
+                                            {DATA_SOURCES[k].name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <div className="flex gap-2 shrink-0">
+                                <button onClick={toggleDarkMode}
+                                        className="p-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                    <Icon key={isDarkMode ? "sun" : "moon"} name={isDarkMode ? "sun" : "moon"} size={18} />
+                                </button>
+                                <button onClick={function() { fetchData(true, false); }}
+                                        className="p-3 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors">
+                                    <Icon name="refresh-cw" size={18} className={isRefreshing ? 'animate-spin' : ''} />
+                                </button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4 mb-8">
+                        {statCards.map(function(s, i) {
+                            return (
+                                <div key={i}
+                                     onClick={function() { if (s.id !== 'HEALTH') setFilterStatus(filterStatus === s.id ? "TOTAL" : s.id); }}
+                                     className={"stats-card " + s.bg + (s.id === 'HEALTH' ? ' col-span-2 lg:col-span-1' : '') + " p-4 md:p-6 rounded-2xl border border-slate-100 dark:border-slate-800 transition-all " + (filterStatus === s.id ? 'stats-active shadow-xl' : 'shadow-sm')}>
+                                    <p className="text-[9px] font-black uppercase tracking-widest opacity-60 mb-1 leading-none text-slate-600 dark:text-slate-400">{s.label}</p>
+                                    <div className={"text-xl md:text-3xl font-black " + s.color}>{s.val}</div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <div className="relative mb-6">
+                        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500 pointer-events-none">
+                            <Icon name="search" size={18} />
+                        </div>
+                        <input type="text" placeholder="Search site..." value={search}
+                               onChange={function(e) { setSearch(e.target.value); }}
+                               className="w-full pl-12 pr-6 py-4 rounded-2xl bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 border-none shadow-sm ring-1 ring-slate-200 dark:ring-slate-800 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-sm" />
+                    </div>
+
+                    <div className="space-y-3">
+                        {loading ? (
+                            <div className="py-20 text-center text-emerald-500">
+                                <Icon name="refresh-cw" size={32} className="animate-spin mx-auto" />
+                            </div>
+                        ) : filteredItems.map(function(item, idx) {
+                            const status = getSiteSummary(item);
+                            const offlineDays = getOfflineDays(item.uptime);
+                            const isDown = status.label === "NOT READY";
+                            const severity = isDown ? getOfflineSeverity(offlineDays) : null;
+                            const certMissing = String(item.cert || "").toUpperCase() === "MISSING";
+
+                            return (
+                                <div key={idx} onClick={function() { setSelectedItem(item); }}
+                                     className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-100 dark:border-slate-800 hover:shadow-lg transition-all flex flex-col md:flex-row md:items-center gap-4 group cursor-pointer">
+                                    <div className="flex items-center gap-4 flex-1 min-w-0">
+                                        <div className="w-10 h-10 md:w-12 md:h-12 bg-slate-100 dark:bg-slate-800 rounded-xl flex items-center justify-center font-black text-xs md:text-sm text-slate-400 dark:text-slate-500 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0">
+                                            {item.id || idx + 1}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                                <h3 className="text-sm md:text-base font-black text-slate-800 dark:text-slate-100 truncate">{item.name || "Unknown"}</h3>
+                                                <span className={"px-2 py-0.5 rounded-md text-[8px] font-black text-white shrink-0 " + status.color}>{status.label}</span>
+                                                {isDown && severity && (
+                                                    <span className={severity.glow + " inline-flex items-center gap-1.5 px-3 py-1 rounded-full " + severity.bg + " text-white text-[9px] md:text-[10px] font-black uppercase tracking-tighter border-2 " + severity.border}>
+                                                        <Icon name={severity.icon} size={10} />
+                                                        {severity.label}{offlineDays > 0 ? " " + offlineDays + " DAYS" : ''}
+                                                    </span>
+                                                )}
+                                                {certMissing && !isDown && (
+                                                    <span className="animate-boom-slow inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-orange-500 text-white text-[9px] md:text-[10px] font-black uppercase tracking-tighter border-2 border-orange-300">
+                                                        <Icon name="shield-off" size={10} />
+                                                        CERT MISSING
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                                                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-tighter">ID: {item.Identity || "-"}</p>
+                                                <p className={"text-[10px] font-bold flex items-center gap-1 uppercase tracking-tighter " + (isDown ? 'text-rose-500' : 'text-emerald-500/80 dark:text-emerald-400/80')}>
+                                                    <Icon name="clock" size={10} /> {item.uptime || "00:00:00"}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-between md:justify-end gap-1.5 md:gap-3 shrink-0">
+                                        <StatusBadge label="VPN"  status={item.vpn}      icon="activity" />
+                                        <StatusBadge label="NET"  status={item.internet} icon="wifi" />
+                                        <StatusBadge label="RAD"  status={item.radius}   icon="shield" />
+                                        <StatusBadge label="LOG"  status={item.syslog}   icon="database" />
+                                        <StatusBadge label="CERT" status={item.cert}     icon="shield-check" />
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+
+                    <footer className="mt-16 text-center pb-10 opacity-60">
+                        <div className="flex justify-center items-center gap-2 mb-1">
+                            <span className="relative flex h-2 w-2">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                            <p className="text-[10px] font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">Last Sync: {lastSync || "-"}</p>
+                        </div>
+                        <p className="text-[9px] font-bold text-slate-400 uppercase">Dole Monitor • NT CHIANGMAI SNAPS TEAM</p>
+                    </footer>
+                </div>
+            </div>
+        );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+</script>
 </body>
 </html>
